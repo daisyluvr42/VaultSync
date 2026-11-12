@@ -1,0 +1,62 @@
+#!/bin/zsh
+set -eu
+task_root="${0:A:h:h}"
+task_work="$task_root/.build/work"
+task_release="$task_root/dist"
+task_build="${task_work}/build"
+task_destination="${task_release}/VaultSync.app"
+task_stage="$(mktemp -d /private/tmp/vaultweave-build.XXXXXX)"
+trap 'rm -rf "$task_stage"' EXIT
+task_output="$task_stage/VaultSync.app"
+cd "$task_root"
+mkdir -p "$task_work" "$task_release"
+if [[ ! -x Resources/syncthing ]]; then python3 scripts/fetch-syncthing.py; fi
+task_configuration="${1:-release}"
+swift build -c "$task_configuration" --scratch-path "$task_build" --product VaultWeave
+swift build -c "$task_configuration" --scratch-path "$task_build" --product VaultWeaveEngineHost
+task_bin="$(swift build -c "$task_configuration" --scratch-path "$task_build" --show-bin-path)"
+mkdir -p "$task_output/Contents/MacOS" "$task_output/Contents/Helpers" "$task_output/Contents/Resources"
+cp "$task_bin/VaultWeave" "$task_output/Contents/MacOS/VaultSync"
+cp "$task_bin/VaultWeaveEngineHost" "$task_output/Contents/Helpers/VaultWeaveEngineHost"
+if [[ "$task_configuration" == "release" ]]; then
+    if [[ "$(uname -m)" == "arm64" ]]; then task_other="x86_64"; task_cross_build="${task_work}/intel"; else task_other="arm64"; task_cross_build="${task_work}/apple-silicon"; fi
+    swift build -c release --triple "${task_other}-apple-macosx13.0" --scratch-path "$task_cross_build" --product VaultWeave
+    swift build -c release --triple "${task_other}-apple-macosx13.0" --scratch-path "$task_cross_build" --product VaultWeaveEngineHost
+    task_cross_bin="$(swift build -c release --triple "${task_other}-apple-macosx13.0" --scratch-path "$task_cross_build" --show-bin-path)"
+    lipo -create "$task_bin/VaultWeave" "$task_cross_bin/VaultWeave" -output "$task_output/Contents/MacOS/VaultSync"
+    lipo -create "$task_bin/VaultWeaveEngineHost" "$task_cross_bin/VaultWeaveEngineHost" -output "$task_output/Contents/Helpers/VaultWeaveEngineHost"
+fi
+cp Resources/syncthing "$task_output/Contents/Helpers/syncthing"
+cp Resources/SYNCTHING-LICENSE.txt Resources/SYNCTHING-VERSION.txt "$task_output/Contents/Resources/"
+if [[ ! -f Resources/VaultWeave.icns ]]; then
+    swift scripts/make-icon.swift "${task_work}/VaultWeave.iconset"
+    iconutil -c icns "${task_work}/VaultWeave.iconset" -o Resources/VaultWeave.icns
+fi
+cp Resources/VaultWeave.icns "$task_output/Contents/Resources/"
+cat > "$task_output/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>VaultSync</string>
+<key>CFBundleIdentifier</key><string>app.vaultweave.mac</string>
+<key>CFBundleName</key><string>VaultSync</string>
+<key>CFBundleDisplayName</key><string>VaultSync</string>
+<key>CFBundleIconFile</key><string>VaultWeave</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>0.2.4</string>
+<key>CFBundleVersion</key><string>7</string>
+<key>LSMinimumSystemVersion</key><string>13.0</string>
+<key>NSHighResolutionCapable</key><true/>
+<key>NSLocalNetworkUsageDescription</key><string>VaultSync 通过 Tailscale 与你的其他 Mac 同步文库。</string>
+<key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
+</dict></plist>
+PLIST
+codesign --force --sign - "$task_output/Contents/Helpers/syncthing"
+codesign --force --sign - "$task_output/Contents/Helpers/VaultWeaveEngineHost"
+xattr -dr com.apple.FinderInfo "$task_output" 2>/dev/null || true
+xattr -dr com.apple.ResourceFork "$task_output" 2>/dev/null || true
+codesign --force --sign - "$task_output"
+codesign --verify --deep --strict "$task_output"
+if [[ -d "$task_destination" ]]; then mv "$task_destination" "$task_stage/Previous.app"; fi
+ditto --norsrc "$task_output" "$task_destination"
+print "$task_destination"
