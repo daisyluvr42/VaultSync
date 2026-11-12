@@ -6,8 +6,8 @@ public struct MergePreview {
 }
 public enum TextMerge {
     public static func preview(base: Data, versions: [Data]) throws -> MergePreview {
-        guard !versions.isEmpty, ([base] + versions).allSatisfy({ String(data: $0, encoding: .utf8) != nil && !$0.contains(0) }) else { throw WeaveError.binaryFile }
-        let temp = FileManager.default.temporaryDirectory.appendingPathComponent("VaultWeave-merge-" + UUID().uuidString)
+        guard !versions.isEmpty, ([base] + versions).allSatisfy({ String(data: $0, encoding: .utf8) != nil && !$0.contains(0) }) else { throw VaultSyncError.binaryFile }
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent("VaultSync-merge-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temp) }
         var result = versions[0]
@@ -21,10 +21,10 @@ public enum TextMerge {
             process.arguments = ["-m", "-L", "已合并版本", "-L", "共同祖先", "-L", "另一设备", ours.path, ancestor.path, theirs.path]
             process.standardOutput = handle; process.standardError = FileHandle.nullDevice
             try process.run(); process.waitUntilExit()
-            guard process.terminationStatus <= 1 else { throw WeaveError.invalidConfiguration("diff3 无法生成合并预览。") }
+            guard process.terminationStatus <= 1 else { throw VaultSyncError.invalidConfiguration("diff3 无法生成合并预览。") }
             result = try Data(contentsOf: output)
             if process.terminationStatus == 1 {
-                guard offset == versions.count - 2 else { throw WeaveError.invalidConfiguration("多分支合并存在重叠，请比较全部分支后手动编辑结果。") }
+                guard offset == versions.count - 2 else { throw VaultSyncError.invalidConfiguration("多分支合并存在重叠，请比较全部分支后手动编辑结果。") }
                 return MergePreview(text: String(decoding: result, as: UTF8.self), hasConflicts: true)
             }
         }
@@ -32,8 +32,8 @@ public enum TextMerge {
     }
     public static func diff(_ lhs: Data, _ rhs: Data) throws -> String {
         guard String(data: lhs, encoding: .utf8) != nil, String(data: rhs, encoding: .utf8) != nil,
-              !lhs.contains(0), !rhs.contains(0) else { throw WeaveError.binaryFile }
-        let temp = FileManager.default.temporaryDirectory.appendingPathComponent("VaultWeave-diff-" + UUID().uuidString)
+              !lhs.contains(0), !rhs.contains(0) else { throw VaultSyncError.binaryFile }
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent("VaultSync-diff-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temp) }
         let a = temp.appendingPathComponent("a"), b = temp.appendingPathComponent("b"), out = temp.appendingPathComponent("out")
@@ -44,7 +44,7 @@ public enum TextMerge {
         process.arguments = ["-u", "-L", "版本 A", "-L", "版本 B", a.path, b.path]
         process.standardOutput = handle; process.standardError = FileHandle.nullDevice
         try process.run(); process.waitUntilExit()
-        guard process.terminationStatus <= 1 else { throw WeaveError.invalidConfiguration("diff 无法读取文件。") }
+        guard process.terminationStatus <= 1 else { throw VaultSyncError.invalidConfiguration("diff 无法读取文件。") }
         return String(decoding: try Data(contentsOf: out), as: UTF8.self)
     }
 }

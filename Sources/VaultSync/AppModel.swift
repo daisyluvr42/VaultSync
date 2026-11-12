@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 import ServiceManagement
-import VaultWeaveCore
+import VaultSyncCore
 
 struct AppConfig: Codable {
     var localID = UUID().uuidString
@@ -33,7 +33,7 @@ struct RevisionContent: Identifiable {
 }
 
 private final class EngineWorkspace: @unchecked Sendable {
-    let queue = DispatchQueue(label: "app.vaultweave.core", qos: .utility)
+    let queue = DispatchQueue(label: "app.vaultsync.core", qos: .utility)
     var engines: [String: VaultEngine] = [:]
 }
 
@@ -81,12 +81,12 @@ private final class EngineWorkspace: @unchecked Sendable {
         statuses.flatMap { status in status.report.conflicts.map { ConflictItem(vaultID: status.id, vaultName: status.mapping.name, conflict: $0) } }
     }
     init() {
-        let override = ProcessInfo.processInfo.environment["VAULTWEAVE_HOME"]
+        let override = ProcessInfo.processInfo.environment["VAULTSYNC_HOME"]
         let env = ProcessInfo.processInfo.environment
-        apiPort = override != nil ? Int(env["VAULTWEAVE_API_PORT"] ?? "18384") ?? 18384 : 18384
-        syncPort = override != nil ? Int(env["VAULTWEAVE_SYNC_PORT"] ?? "22080") ?? 22080 : 22080
-        pairingPort = override != nil ? UInt16(env["VAULTWEAVE_PAIRING_PORT"] ?? "22081") ?? 22081 : 22081
-        base = override.map { URL(fileURLWithPath: $0) } ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("VaultWeave")
+        apiPort = override != nil ? Int(env["VAULTSYNC_API_PORT"] ?? "18384") ?? 18384 : 18384
+        syncPort = override != nil ? Int(env["VAULTSYNC_SYNC_PORT"] ?? "22080") ?? 22080 : 22080
+        pairingPort = override != nil ? UInt16(env["VAULTSYNC_PAIRING_PORT"] ?? "22081") ?? 22081 : 22081
+        base = override.map { URL(fileURLWithPath: $0) } ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("VaultSync")
         objects = base.appendingPathComponent("Objects"); stateRoot = base.appendingPathComponent("LocalState")
         configFile = base.appendingPathComponent("settings.json")
         config = AppConfig()
@@ -218,7 +218,7 @@ private final class EngineWorkspace: @unchecked Sendable {
         drainScans()
         if let service, !engineID.isEmpty {
             Task {
-                do { try await service.request("POST", "db/scan?folder=vaultweave-objects-v1") }
+                do { try await service.request("POST", "db/scan?folder=vaultsync-objects-v1") }
                 catch { self.error = error.localizedDescription }
             }
         }
@@ -292,7 +292,7 @@ private final class EngineWorkspace: @unchecked Sendable {
     func resolve(_ item: ConflictItem, data: Data?, completion: @escaping (Bool) -> Void) {
         workspace.queue.async {
             do {
-                guard let engine = self.workspace.engines[item.vaultID] else { throw WeaveError.staleMerge }
+                guard let engine = self.workspace.engines[item.vaultID] else { throw VaultSyncError.staleMerge }
                 let report = try engine.resolve(path: item.conflict.path, expectedHeads: item.conflict.heads.map(\.id), data: data)
                 DispatchQueue.main.async {
                     if let index = self.statuses.firstIndex(where: { $0.id == item.vaultID }) { self.statuses[index].report = report; self.statuses[index].updated = Date() }
@@ -339,7 +339,7 @@ private final class EngineWorkspace: @unchecked Sendable {
         defer { transportBusy = false }
         do {
             if service == nil {
-                guard let executable = SyncthingService.bundledExecutable() else { throw WeaveError.invalidConfiguration("应用中缺少 Syncthing。开发时请运行 scripts/fetch-syncthing.py。") }
+                guard let executable = SyncthingService.bundledExecutable() else { throw VaultSyncError.invalidConfiguration("应用中缺少 Syncthing。开发时请运行 scripts/fetch-syncthing.py。") }
                 service = try SyncthingService(home: base.appendingPathComponent("Syncthing"), objects: objects, executable: executable, apiPort: apiPort, syncPort: syncPort)
             }
             try await service!.start(peers: config.peers, deviceName: config.deviceName)
@@ -385,7 +385,7 @@ private final class EngineWorkspace: @unchecked Sendable {
     }
     func copyPairing() {
         do {
-            guard !engineID.isEmpty else { throw WeaveError.invalidConfiguration("请先启动同步引擎，再复制配对信息。") }
+            guard !engineID.isEmpty else { throw VaultSyncError.invalidConfiguration("请先启动同步引擎，再复制配对信息。") }
             let offer = PairingOffer(peer: Peer(id: engineID, name: config.deviceName, host: engineHost, port: syncPort), vaults: config.vaults)
             let data = try Codec.encode(offer)
             NSPasteboard.general.clearContents(); NSPasteboard.general.setString(String(decoding: data, as: UTF8.self), forType: .string)
@@ -397,8 +397,8 @@ private final class EngineWorkspace: @unchecked Sendable {
     }
     private func acceptOffer(_ offer: PairingOffer) async throws {
         MainActor.assertIsolated()
-        guard offer.peer.id != engineID else { throw WeaveError.invalidConfiguration("这是本机设备的配对信息，请选择另一台 Mac。") }
-        guard let service, !engineID.isEmpty else { throw WeaveError.invalidConfiguration("请先启动本机同步，再添加设备。") }
+        guard offer.peer.id != engineID else { throw VaultSyncError.invalidConfiguration("这是本机设备的配对信息，请选择另一台 Mac。") }
+        guard let service, !engineID.isEmpty else { throw VaultSyncError.invalidConfiguration("请先启动本机同步，再添加设备。") }
         try offer.peer.validate()
         let peers = config.peers.filter { $0.id != offer.peer.id } + [offer.peer]
         try await service.configure(peers: peers, deviceName: config.deviceName)
@@ -447,7 +447,7 @@ private final class EngineWorkspace: @unchecked Sendable {
             guard outbound?.request.id == request.id else {
                 _ = try? await PairingClient.exchange(host: device.peer.host, port: device.pairingPort, packet: PairingPacket(action: "cancel", requestID: request.id, token: request.token)); return
             }
-            guard ["pending", "approved", "complete"].contains(reply.state) else { throw WeaveError.invalidConfiguration("对方未接受配对请求。") }
+            guard ["pending", "approved", "complete"].contains(reply.state) else { throw VaultSyncError.invalidConfiguration("对方未接受配对请求。") }
             pairingMessage = ""
             pairingTask = Task { [weak self] in await self?.pollPairing(device, request: request) }
         } catch { if outbound?.request.id == request.id { pairingMessage = "发送失败：\(error.localizedDescription)"; outbound = nil; outboundName = ""; outboundCode = "" } }
@@ -460,7 +460,7 @@ private final class EngineWorkspace: @unchecked Sendable {
                     packet: PairingPacket(action: "status", requestID: request.id, token: request.token))
                 try Task.checkCancellation()
                 if ["approved", "complete"].contains(reply.state), let offer = reply.offer {
-                    guard offer.peer == device.peer else { throw WeaveError.invalidConfiguration("对端设备身份变化，请重新查找并确认。") }
+                    guard offer.peer == device.peer else { throw VaultSyncError.invalidConfiguration("对端设备身份变化，请重新查找并确认。") }
                     finishingPairing = true
                     try await acceptOffer(offer)
                     if ownOffer != nil {

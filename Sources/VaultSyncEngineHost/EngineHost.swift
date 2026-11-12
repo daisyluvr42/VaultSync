@@ -9,7 +9,7 @@ import Darwin
         guard args.count >= 7, args[0] == "--parent", let owner = Int32(args[1]), owner > 1,
               args[2] == "--engine", args[4] == "--record", args[6] == "--", getppid() == owner else { exit(64) }
         let record = URL(fileURLWithPath: args[5])
-        let queue = DispatchQueue(label: "app.vaultweave.engine-host")
+        let queue = DispatchQueue(label: "app.vaultsync.engine-host")
         let child = Process(); child.executableURL = URL(fileURLWithPath: args[3]); child.arguments = Array(args.dropFirst(7))
         var environment = ProcessInfo.processInfo.environment
         environment["STMONITORED"] = "yes" // Run one worker; this process owns lifecycle supervision.

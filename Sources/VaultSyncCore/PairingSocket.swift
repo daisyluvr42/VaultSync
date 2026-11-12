@@ -3,7 +3,7 @@ import Darwin
 
 /// BSD sockets use the same routing semantics as Syncthing, including macOS VPN interfaces.
 enum PairingSocket {
-    static func failure(_ action: String) -> WeaveError {
+    static func failure(_ action: String) -> VaultSyncError {
         .invalidConfiguration("\(action)失败：\(String(cString: strerror(errno)))。请确认对端已启动同步，并允许 Tailscale TCP 22081。")
     }
     static func socket() throws -> Int32 {
@@ -19,14 +19,14 @@ enum PairingSocket {
     static func address(_ host: String, port: UInt16) throws -> sockaddr_in {
         var value = sockaddr_in(); value.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         value.sin_family = sa_family_t(AF_INET); value.sin_port = port.bigEndian
-        guard inet_pton(AF_INET, host, &value.sin_addr) == 1 else { throw WeaveError.invalidConfiguration("请选择 Tailscale IPv4 地址。") }
+        guard inet_pton(AF_INET, host, &value.sin_addr) == 1 else { throw VaultSyncError.invalidConfiguration("请选择 Tailscale IPv4 地址。") }
         return value
     }
     private static func deadline() -> UInt64 { DispatchTime.now().uptimeNanoseconds + 4_000_000_000 }
     private static func ready(_ fd: Int32, event: Int16, until end: UInt64) throws {
         while true {
             let now = DispatchTime.now().uptimeNanoseconds
-            guard now < end else { throw WeaveError.invalidConfiguration("等待设备响应超时。请检查对端同步状态和 Tailscale TCP 22081。") }
+            guard now < end else { throw VaultSyncError.invalidConfiguration("等待设备响应超时。请检查对端同步状态和 Tailscale TCP 22081。") }
             var descriptor = pollfd(fd: fd, events: event, revents: 0)
             let result = Darwin.poll(&descriptor, 1, Int32(max(1, (end - now) / 1_000_000)))
             if result > 0 { return }
@@ -53,13 +53,13 @@ enum PairingSocket {
         while result.count <= 65536 {
             try ready(fd, event: Int16(POLLIN), until: end)
             let count = Darwin.recv(fd, &buffer, buffer.count, 0)
-            if count == 0 { throw WeaveError.invalidConfiguration("设备关闭了配对连接。") }
+            if count == 0 { throw VaultSyncError.invalidConfiguration("设备关闭了配对连接。") }
             if count < 0 { if errno == EAGAIN || errno == EINTR { continue }; throw failure("读取配对信息") }
             result.append(contentsOf: buffer.prefix(count))
             guard result.count <= 65536 else { break }
             if let end = result.firstIndex(of: 10) { return result.prefix(upTo: end) }
         }
-        throw WeaveError.invalidConfiguration("配对信息超过大小限制。")
+        throw VaultSyncError.invalidConfiguration("配对信息超过大小限制。")
     }
     static func write(_ data: Data, to fd: Int32) throws {
         let end = deadline()
@@ -70,7 +70,7 @@ enum PairingSocket {
                 try ready(fd, event: Int16(POLLOUT), until: end)
                 let count = Darwin.send(fd, pointer.advanced(by: offset), data.count - offset, 0)
                 if count < 0 { if errno == EAGAIN || errno == EINTR { continue }; throw failure("发送配对信息") }
-                guard count > 0 else { throw WeaveError.invalidConfiguration("配对连接已关闭。") }; offset += count
+                guard count > 0 else { throw VaultSyncError.invalidConfiguration("配对连接已关闭。") }; offset += count
             }
         }
     }

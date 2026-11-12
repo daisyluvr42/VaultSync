@@ -11,7 +11,7 @@ public final class ObjectStore {
     private var pendingWrites = Set<String>()
     private var graph: (revisions: [String: Revision], notices: [String])?
     public init(transportRoot: URL, vaultID: String) throws {
-        guard Codec.validVaultID(vaultID) else { throw WeaveError.invalidConfiguration("文库 ID 必须是 UUID。") }
+        guard Codec.validVaultID(vaultID) else { throw VaultSyncError.invalidConfiguration("文库 ID 必须是 UUID。") }
         self.vaultID = vaultID
         root = try Codec.safeURL(root: transportRoot, path: vaultID)
         try fm.createDirectory(at: Codec.safeURL(root: root, path: "blobs"), withIntermediateDirectories: true)
@@ -23,13 +23,13 @@ public final class ObjectStore {
         return id
     }
     public func blob(_ id: String) throws -> Data {
-        guard Codec.validID(id) else { throw WeaveError.invalidObject(id) }
+        guard Codec.validID(id) else { throw VaultSyncError.invalidObject(id) }
         let url = try Codec.safeURL(root: root, path: "blobs/\(id)")
         guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else {
-            throw WeaveError.invalidObject(id)
+            throw VaultSyncError.invalidObject(id)
         }
         let data = try Data(contentsOf: url)
-        guard Codec.hash(data) == id else { throw WeaveError.invalidObject(id) }
+        guard Codec.hash(data) == id else { throw VaultSyncError.invalidObject(id) }
         return data
     }
     @discardableResult public func create(path: String, parents: [String], data: Data?, device: String, timestamp: Double? = nil) throws -> Revision {
@@ -44,7 +44,7 @@ public final class ObjectStore {
     private func put(_ data: Data, at url: URL) throws {
         let safe = try Codec.safeURL(root: root, path: String(url.path.dropFirst(root.path.count + 1)))
         if fm.fileExists(atPath: safe.path) {
-            guard try Data(contentsOf: safe) == data else { throw WeaveError.invalidObject(safe.lastPathComponent) }
+            guard try Data(contentsOf: safe) == data else { throw VaultSyncError.invalidObject(safe.lastPathComponent) }
         } else {
             try data.write(to: safe, options: .atomic)
             pendingWrites.insert(String(safe.path.dropFirst(root.path.count + 1)))
@@ -87,12 +87,12 @@ public final class ObjectStore {
             do {
                 let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
                 guard values.isRegularFile == true, values.isSymbolicLink != true else {
-                    throw WeaveError.invalidPath(filename)
+                    throw VaultSyncError.invalidPath(filename)
                 }
                 let revision = try JSONDecoder().decode(Revision.self, from: Data(contentsOf: url))
                 try revision.validate(vaultID: vaultID)
                 guard url.deletingPathExtension().lastPathComponent == revision.id else {
-                    throw WeaveError.invalidObject(filename)
+                    throw VaultSyncError.invalidObject(filename)
                 }
                 revisions[filename] = revision
             } catch {

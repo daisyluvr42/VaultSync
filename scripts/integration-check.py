@@ -9,10 +9,10 @@ ROOT = Path(__file__).resolve().parents[1]
 WORK = ROOT / '.build' / 'work'
 WORK.mkdir(parents=True, exist_ok=True)
 BUILD = WORK / 'build'
-for product in ['VaultWeaveEngineHost','VaultWeaveCLI']:
+for product in ['VaultSyncEngineHost','VaultSyncCLI']:
     subprocess.run(['swift', 'build', '--scratch-path', str(BUILD), '--product', product], cwd=ROOT, check=True)
 binary_path = subprocess.check_output(['swift','build','--scratch-path',str(BUILD),'--show-bin-path'], cwd=ROOT, text=True).strip()
-CLI = str(Path(binary_path) / 'VaultWeaveCLI')
+CLI = str(Path(binary_path) / 'VaultSyncCLI')
 ENGINE = str(ROOT / 'Resources/syncthing')
 run = Path(tempfile.mkdtemp(prefix='integration-', dir=WORK))
 vault_id = str(uuid.uuid4())
@@ -33,7 +33,7 @@ def wait(predicate, description, seconds=45):
     raise RuntimeError(f'timeout: {description}; last={last!r}')
 
 def api(node, method, endpoint):
-    key = (node['root']/'engine'/'vaultweave-api-key').read_text()
+    key = (node['root']/'engine'/'vaultsync-api-key').read_text()
     req = urllib.request.Request(f"http://127.0.0.1:{node['api']}/rest/{endpoint}", method=method, headers={'X-API-Key':key})
     with urllib.request.urlopen(req, timeout=4) as response:
         data = response.read()

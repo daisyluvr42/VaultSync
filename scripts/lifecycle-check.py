@@ -7,9 +7,9 @@ ROOT = Path(__file__).resolve().parents[1]
 WORK = ROOT / '.build' / 'work'
 WORK.mkdir(parents=True, exist_ok=True)
 BUILD = WORK / 'build'
-for product in ['VaultWeaveEngineHost','VaultWeaveCLI']:
+for product in ['VaultSyncEngineHost','VaultSyncCLI']:
     subprocess.run(['swift','build','--scratch-path',str(BUILD),'--product',product],cwd=ROOT,check=True)
-binary = Path(subprocess.check_output(['swift','build','--scratch-path',str(BUILD),'--show-bin-path'],cwd=ROOT,text=True).strip())/'VaultWeaveCLI'
+binary = Path(subprocess.check_output(['swift','build','--scratch-path',str(BUILD),'--show-bin-path'],cwd=ROOT,text=True).strip())/'VaultSyncCLI'
 home = Path(tempfile.mkdtemp(prefix='lifecycle-check-',dir=WORK))
 def exists(pid):
     try: os.kill(pid,0); return True

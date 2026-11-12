@@ -46,7 +46,7 @@ public struct PairingReply: Sendable, Codable {
 /// engine API credentials are exposed. Only explicit approval releases the Vault catalogue.
 public final class PairingServer: @unchecked Sendable {
     public private(set) var port: UInt16 = 22081
-    private let queue = DispatchQueue(label: "app.vaultweave.pairing.server")
+    private let queue = DispatchQueue(label: "app.vaultsync.pairing.server")
     private var listener: DispatchSourceRead?
     private var connections: [UUID: Int32] = [:]
     private var offer: PairingOffer
@@ -58,7 +58,7 @@ public final class PairingServer: @unchecked Sendable {
     public init(offer: PairingOffer, allowLoopbackForTesting: Bool = false) { self.offer = offer; testLoopback = allowLoopbackForTesting }
     public func updateOffer(_ value: PairingOffer) { queue.async { self.offer = value } }
     public func start(host: String, port: UInt16 = 22081) async throws {
-        guard (host.contains(".") && Peer.isTailIP(host)) || (testLoopback && host == "127.0.0.1") else { throw WeaveError.invalidConfiguration("配对服务需要 Tailscale IPv4 地址。") }
+        guard (host.contains(".") && Peer.isTailIP(host)) || (testLoopback && host == "127.0.0.1") else { throw VaultSyncError.invalidConfiguration("配对服务需要 Tailscale IPv4 地址。") }
         let fd = try PairingSocket.socket()
         do {
             var reuse: Int32 = 1
@@ -92,7 +92,7 @@ public final class PairingServer: @unchecked Sendable {
                 let reply: PairingReply
                 do {
                     let packet = try JSONDecoder().decode(PairingPacket.self, from: PairingSocket.readLine(fd))
-                    reply = try queue.sync { guard listener != nil else { throw WeaveError.invalidConfiguration("配对服务已停止。") }; return try handle(packet, origin: origin) }
+                    reply = try queue.sync { guard listener != nil else { throw VaultSyncError.invalidConfiguration("配对服务已停止。") }; return try handle(packet, origin: origin) }
                 } catch { reply = PairingReply(state: "error", message: error.localizedDescription) }
                 if let data = try? Codec.encode(reply) { try? PairingSocket.write(data + Data([10]), to: fd) }
             }
@@ -100,19 +100,19 @@ public final class PairingServer: @unchecked Sendable {
     }
     private func publish() { onRequests?(entries.values.filter { $0.state == "pending" }.map(\.request).sorted { $0.created < $1.created }) }
     private func handle(_ packet: PairingPacket, origin: String) throws -> PairingReply {
-        guard packet.schema == 1 else { throw WeaveError.invalidConfiguration("两台设备的配对协议不兼容，请更新应用。") }
+        guard packet.schema == 1 else { throw VaultSyncError.invalidConfiguration("两台设备的配对协议不兼容，请更新应用。") }
         let now = Date().timeIntervalSince1970
         entries = entries.filter { now - $0.value.request.created < 600 }
         switch packet.action {
         case "hello": return PairingReply(state: "hello", offer: PairingOffer(peer: offer.peer, vaults: []))
         case "request":
             guard var request = packet.request, UUID(uuidString: request.id) != nil, request.token.count >= 64,
-                  request.code.count == 6, request.code.allSatisfy(\.isNumber), entries.count < 64 else { throw WeaveError.invalidConfiguration("配对请求无效或待处理请求过多。") }
+                  request.code.count == 6, request.code.allSatisfy(\.isNumber), entries.count < 64 else { throw VaultSyncError.invalidConfiguration("配对请求无效或待处理请求过多。") }
             try request.peer.validate()
-            guard testLoopback || request.peer.host == origin else { throw WeaveError.invalidConfiguration("请求设备与网络来源不一致。") }
-            guard request.peer.id != offer.peer.id else { throw WeaveError.invalidConfiguration("不能与本机配对。") }
+            guard testLoopback || request.peer.host == origin else { throw VaultSyncError.invalidConfiguration("请求设备与网络来源不一致。") }
+            guard request.peer.id != offer.peer.id else { throw VaultSyncError.invalidConfiguration("不能与本机配对。") }
             if let existing = entries[request.id] {
-                guard existing.request.token == request.token, existing.origin == origin else { throw WeaveError.invalidConfiguration("配对请求身份不匹配。") }
+                guard existing.request.token == request.token, existing.origin == origin else { throw VaultSyncError.invalidConfiguration("配对请求身份不匹配。") }
                 return response(existing)
             }
             request.created = now
@@ -122,17 +122,17 @@ public final class PairingServer: @unchecked Sendable {
             return PairingReply(state: "pending")
         case "status", "ack", "cancel":
             guard let id = packet.requestID, let entry = entries[id], entry.origin == origin, packet.token == entry.request.token else {
-                throw WeaveError.invalidConfiguration("配对请求已过期，请重新发起。")
+                throw VaultSyncError.invalidConfiguration("配对请求已过期，请重新发起。")
             }
             if packet.action == "cancel" { entries[id]?.state = "cancelled"; publish(); return PairingReply(state: "cancelled") }
             if packet.action == "ack" {
-                guard ["approved", "complete"].contains(entry.state), let remote = packet.offer, remote.peer == entry.request.peer else { throw WeaveError.invalidConfiguration("配对尚未确认，或设备身份已变化。") }
+                guard ["approved", "complete"].contains(entry.state), let remote = packet.offer, remote.peer == entry.request.peer else { throw VaultSyncError.invalidConfiguration("配对尚未确认，或设备身份已变化。") }
                 _ = try PairingOffer.parse(String(decoding: Codec.encode(remote), as: UTF8.self))
                 onAcknowledged?(remote); entries[id]?.state = "complete"; publish()
                 return PairingReply(state: "complete")
             }
             return response(entry)
-        default: throw WeaveError.invalidConfiguration("不支持的配对操作。")
+        default: throw VaultSyncError.invalidConfiguration("不支持的配对操作。")
         }
     }
     private func response(_ entry: Entry) -> PairingReply {
@@ -151,9 +151,9 @@ public final class PairingServer: @unchecked Sendable {
 
 public enum PairingClient {
     public static func exchange(host: String, port: UInt16 = 22081, packet: PairingPacket, allowLoopbackForTesting: Bool = false) async throws -> PairingReply {
-        guard Peer.isTailIP(host) || (allowLoopbackForTesting && host == "127.0.0.1") else { throw WeaveError.invalidConfiguration("请选择有效的 Tailscale 地址。") }
+        guard Peer.isTailIP(host) || (allowLoopbackForTesting && host == "127.0.0.1") else { throw VaultSyncError.invalidConfiguration("请选择有效的 Tailscale 地址。") }
         let payload = try Codec.encode(packet) + Data([10])
-        guard payload.count <= 65536 else { throw WeaveError.invalidConfiguration("配对信息过大。") }
+        guard payload.count <= 65536 else { throw VaultSyncError.invalidConfiguration("配对信息过大。") }
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
                 do {
@@ -161,7 +161,7 @@ public enum PairingClient {
                     defer { Darwin.close(fd) }
                     try PairingSocket.write(payload, to: fd)
                     let reply = try JSONDecoder().decode(PairingReply.self, from: PairingSocket.readLine(fd))
-                    if reply.state == "error" { throw WeaveError.invalidConfiguration(reply.message ?? "对端配对失败。") }
+                    if reply.state == "error" { throw VaultSyncError.invalidConfiguration(reply.message ?? "对端配对失败。") }
                     continuation.resume(returning: reply)
                 } catch { continuation.resume(throwing: error) }
             }

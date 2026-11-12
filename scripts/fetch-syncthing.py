@@ -7,7 +7,7 @@ VERSION = 'v2.1.7'
 NAME = f'syncthing-macos-universal-{VERSION}.zip'
 BASE = f'https://github.com/syncthing/syncthing/releases/download/{VERSION}/'
 ROOT = Path(__file__).resolve().parents[1]
-with tempfile.TemporaryDirectory(prefix='vaultweave-download-') as directory:
+with tempfile.TemporaryDirectory(prefix='vaultsync-download-') as directory:
     directory = Path(directory)
     for name in ['sha256sum.txt.asc', NAME]:
         subprocess.run(['/usr/bin/curl', '-fLsS', '--connect-timeout', '15', '--max-time', '120',

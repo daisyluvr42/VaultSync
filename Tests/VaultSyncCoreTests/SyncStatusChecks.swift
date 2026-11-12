@@ -1,5 +1,5 @@
 import Foundation
-import VaultWeaveCore
+import VaultSyncCore
 
 extension EngineTests {
     func testIgnoredFilesNeverHideSiblingsOrPublishDeletions() throws {

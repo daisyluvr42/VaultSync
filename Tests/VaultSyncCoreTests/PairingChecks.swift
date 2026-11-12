@@ -1,11 +1,11 @@
 import Foundation
-import VaultWeaveCore
+import VaultSyncCore
 
 private final class AsyncOutcome: @unchecked Sendable { var error: Error? }
 private func awaitCheck(_ body: @escaping @Sendable () async throws -> Void) throws {
     let gate = DispatchSemaphore(value: 0), outcome = AsyncOutcome()
     Task.detached { do { try await body() } catch { outcome.error = error }; gate.signal() }
-    guard gate.wait(timeout: .now() + 15) == .success else { throw WeaveError.invalidConfiguration("配对验证超时。") }
+    guard gate.wait(timeout: .now() + 15) == .success else { throw VaultSyncError.invalidConfiguration("配对验证超时。") }
     if let error = outcome.error { throw error }
 }
 extension EngineTests {

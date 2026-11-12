@@ -1,11 +1,11 @@
 import Foundation
-import VaultWeaveCore
+import VaultSyncCore
 
 final class EngineTests: CheckSuite {
     var temp: URL!
     let vaultID = UUID().uuidString.lowercased()
     override func setUpWithError() throws {
-        temp = FileManager.default.temporaryDirectory.appendingPathComponent("VaultWeave-test-" + UUID().uuidString)
+        temp = FileManager.default.temporaryDirectory.appendingPathComponent("VaultSync-test-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
     }
     override func tearDownWithError() throws { try FileManager.default.removeItem(at: temp) }

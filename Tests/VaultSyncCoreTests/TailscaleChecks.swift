@@ -1,5 +1,5 @@
 import Foundation
-import VaultWeaveCore
+import VaultSyncCore
 
 extension EngineTests {
     private func cliFixture(_ name: String, script: String) throws -> URL {

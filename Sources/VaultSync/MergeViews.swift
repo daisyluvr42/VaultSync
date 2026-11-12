@@ -1,6 +1,6 @@
 import SwiftUI
 import AppKit
-import VaultWeaveCore
+import VaultSyncCore
 
 struct ConflictsView: View {
     @EnvironmentObject var model: AppModel

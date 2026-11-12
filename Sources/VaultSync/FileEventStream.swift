@@ -1,7 +1,7 @@
 import CoreServices
 import Darwin
 import Foundation
-import VaultWeaveCore
+import VaultSyncCore
 
 /// A file-level FSEvents stream delivered on the main queue.
 final class FileEventStream {

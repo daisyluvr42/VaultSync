@@ -14,25 +14,25 @@ for index in range(6):
                   offeredVaults=[], transportEnabled=True, scanInterval=3)
     (home/'settings.json').write_text(json.dumps(config))
     env = {k:v for k,v in os.environ.items() if k not in {'SHLVL','TERM','TERM_PROGRAM','PS1','TAILSCALE_BE_CLI'}}
-    env.update(VAULTWEAVE_HOME=str(home), VAULTWEAVE_API_PORT=str(29600+index),
-               VAULTWEAVE_SYNC_PORT=str(33600+index), VAULTWEAVE_PAIRING_PORT=str(33700+index))
+    env.update(VAULTSYNC_HOME=str(home), VAULTSYNC_API_PORT=str(29600+index),
+               VAULTSYNC_SYNC_PORT=str(33600+index), VAULTSYNC_PAIRING_PORT=str(33700+index))
     # Give QA its own identity and persistent overrides, including any LaunchServices relaunch.
     # Stage outside Documents so File Provider cannot add invalidating FinderInfo metadata.
-    qa_stage = Path(tempfile.mkdtemp(prefix='vaultweave-startup-',dir='/private/tmp'))
+    qa_stage = Path(tempfile.mkdtemp(prefix='vaultsync-startup-',dir='/private/tmp'))
     qa_app = qa_stage/'VaultSync Startup Check.app'
     subprocess.run(['ditto','--norsrc',str(SOURCE_APP),str(qa_app)],check=True)
     plist = qa_app/'Contents/Info.plist'
     info = plistlib.loads(plist.read_bytes())
-    info['CFBundleIdentifier'] = 'app.vaultweave.startup-check.'+str(uuid.uuid4())
+    info['CFBundleIdentifier'] = 'app.vaultsync.startup-check.'+str(uuid.uuid4())
     info['CFBundleName'] = info['CFBundleDisplayName'] = 'VaultSync Startup Check'
-    info['LSEnvironment'] = {k:v for k,v in env.items() if k.startswith('VAULTWEAVE_')}
+    info['LSEnvironment'] = {k:v for k,v in env.items() if k.startswith('VAULTSYNC_')}
     plist.write_bytes(plistlib.dumps(info))
     subprocess.run(['codesign','--force','--sign','-',str(qa_app)],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     app = qa_app/'Contents/MacOS/VaultSync'
     with (home/'app.log').open('w') as log:
         process = subprocess.Popen([str(app)], env=env, stdout=log, stderr=log)
         def api(method, endpoint):
-            key = (home/'Syncthing/vaultweave-api-key').read_text()
+            key = (home/'Syncthing/vaultsync-api-key').read_text()
             request = urllib.request.Request(f'http://127.0.0.1:{29600+index}/rest/{endpoint}',method=method,headers={'X-API-Key':key})
             with urllib.request.urlopen(request,timeout=2) as response: return response.read()
         try:

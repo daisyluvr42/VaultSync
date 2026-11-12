@@ -1,17 +1,17 @@
 import Foundation
 import Darwin
-import VaultWeaveCore
+import VaultSyncCore
 
-@main struct VaultWeaveCLI {
+@main struct VaultSyncCLI {
     static func main() async {
         setbuf(stdout, nil)
         do {
             let args = Array(CommandLine.arguments.dropFirst())
-            guard let command = args.first else { throw WeaveError.invalidConfiguration("Commands: scan, merge, transport-probe") }
+            guard let command = args.first else { throw VaultSyncError.invalidConfiguration("Commands: scan, merge, transport-probe") }
             var flags: [String: String] = [:]
             var index = 1
             while index + 1 < args.count { flags[args[index]] = args[index+1]; index += 2 }
-            func flag(_ name: String) throws -> String { guard let value = flags["--" + name] else { throw WeaveError.invalidConfiguration("Missing --" + name) }; return value }
+            func flag(_ name: String) throws -> String { guard let value = flags["--" + name] else { throw VaultSyncError.invalidConfiguration("Missing --" + name) }; return value }
             if command == "pairing-integration" {
                 try await runPairingIntegration(home: URL(fileURLWithPath: try flag("home")), executable: URL(fileURLWithPath: try flag("engine")))
                 return
@@ -31,9 +31,9 @@ import VaultWeaveCore
                 let service = try SyncthingService(home: base.appendingPathComponent("engine"), objects: base.appendingPathComponent("objects"),
                     executable: URL(fileURLWithPath: try flag("engine")), apiPort: Int(flags["--api-port"] ?? "28384")!, syncPort: Int(flags["--sync-port"] ?? "32080")!)
                 defer { service.stop() }
-                try await service.start(peers: [], deviceName: "VaultWeave isolated probe")
+                try await service.start(peers: [], deviceName: "VaultSync isolated probe")
                 let config = try await service.request("GET", "config/options")
-                let folder = try await service.request("GET", "config/folders/vaultweave-objects-v1")
+                let folder = try await service.request("GET", "config/folders/vaultsync-objects-v1")
                 let report: [String: Any] = ["started": true, "deviceID": service.deviceID, "host": service.tailHost, "listenAddresses": config["listenAddresses"] ?? [],
                     "globalDiscovery": config["globalAnnounceEnabled"] ?? true, "relays": config["relaysEnabled"] ?? true,
                     "folderID": folder["id"] ?? "", "folderPath": folder["path"] ?? ""]
@@ -61,7 +61,7 @@ import VaultWeaveCore
                 let data = flags["--delete"] == "yes" ? nil : try Data(contentsOf: URL(fileURLWithPath: try flag("file")))
                 report = try engine.resolve(path: try flag("path"), expectedHeads: try flag("heads").split(separator: ",").map(String.init), data: data)
             } else if command == "scan" { report = try engine.scan() }
-            else { throw WeaveError.invalidConfiguration("Unknown command") }
+            else { throw VaultSyncError.invalidConfiguration("Unknown command") }
             let conflicts: [[String: Any]] = report.conflicts.map { ["path": $0.path, "heads": $0.heads.map(\.id), "base": $0.base?.id ?? ""] }
             let json: [String: Any] = ["files": report.files, "revisions": report.revisions, "conflicts": conflicts, "notices": report.notices]
             print(String(decoding: try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys]), as: UTF8.self))

@@ -2,14 +2,14 @@
 import PackageDescription
 
 let package = Package(
-    name: "VaultWeave",
+    name: "VaultSync",
     platforms: [.macOS(.v13)],
-    products: [.library(name: "VaultWeaveCore", targets: ["VaultWeaveCore"]),
-               .executable(name: "VaultWeave", targets: ["VaultWeave"]),
-               .executable(name: "VaultWeaveEngineHost", targets: ["VaultWeaveEngineHost"]),
-               .executable(name: "VaultWeaveCLI", targets: ["VaultWeaveCLI"])],
-    targets: [.target(name: "VaultWeaveCore"),
-              .executableTarget(name: "VaultWeave", dependencies: ["VaultWeaveCore"]),
-              .executableTarget(name: "VaultWeaveEngineHost"),
-              .executableTarget(name: "VaultWeaveCLI", dependencies: ["VaultWeaveCore"]),
-              .executableTarget(name: "VaultWeaveChecks", dependencies: ["VaultWeaveCore"], path: "Tests/VaultWeaveCoreTests")])
+    products: [.library(name: "VaultSyncCore", targets: ["VaultSyncCore"]),
+               .executable(name: "VaultSync", targets: ["VaultSync"]),
+               .executable(name: "VaultSyncEngineHost", targets: ["VaultSyncEngineHost"]),
+               .executable(name: "VaultSyncCLI", targets: ["VaultSyncCLI"])],
+    targets: [.target(name: "VaultSyncCore"),
+              .executableTarget(name: "VaultSync", dependencies: ["VaultSyncCore"]),
+              .executableTarget(name: "VaultSyncEngineHost"),
+              .executableTarget(name: "VaultSyncCLI", dependencies: ["VaultSyncCore"]),
+              .executableTarget(name: "VaultSyncChecks", dependencies: ["VaultSyncCore"], path: "Tests/VaultSyncCoreTests")])

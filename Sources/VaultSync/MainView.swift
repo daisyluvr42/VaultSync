@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 import ServiceManagement
-import VaultWeaveCore
+import VaultSyncCore
 
 enum Destination: String, CaseIterable {
     case vaults = "文库", devices = "设备", conflicts = "待合并", history = "版本历史", settings = "设置"

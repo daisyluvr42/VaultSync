@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 
-public enum WeaveError: LocalizedError {
+public enum VaultSyncError: LocalizedError {
     case invalidPath(String), invalidObject(String), staleMerge, changedDuringSync(String)
     case binaryFile, missingBase, invalidConfiguration(String)
     public var errorDescription: String? {
@@ -30,7 +30,7 @@ public enum Codec {
     public static func validatePath(_ path: String) throws {
         let parts = path.split(separator: "/", omittingEmptySubsequences: false)
         guard !path.isEmpty, !path.hasPrefix("/"), !path.contains("\0"), !path.contains("\\"),
-              parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else { throw WeaveError.invalidPath(path) }
+              parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else { throw VaultSyncError.invalidPath(path) }
     }
     public static func safeURL(root: URL, path: String) throws -> URL {
         try validatePath(path)
@@ -39,10 +39,10 @@ public enum Codec {
         for component in path.split(separator: "/") {
             cursor.appendPathComponent(String(component))
             if let values = try? cursor.resourceValues(forKeys: [.isSymbolicLinkKey]), values.isSymbolicLink == true {
-                throw WeaveError.invalidPath(path)
+                throw VaultSyncError.invalidPath(path)
             }
         }
-        guard cursor.standardizedFileURL.path.hasPrefix(root.path + "/") else { throw WeaveError.invalidPath(path) }
+        guard cursor.standardizedFileURL.path.hasPrefix(root.path + "/") else { throw VaultSyncError.invalidPath(path) }
         return cursor
     }
 }
@@ -58,7 +58,7 @@ public struct VaultMapping: Sendable, Codable, Identifiable, Equatable {
     public func includes(_ path: String) -> Bool {
         let parts = path.split(separator: "/").map(String.init)
         guard let first = parts.first else { return false }
-        if [".git", ".trash", ".stfolder", ".stversions", ".vaultweave"].contains(first) { return false }
+        if [".git", ".trash", ".stfolder", ".stversions", ".vaultsync"].contains(first) { return false }
         if first == ".obsidian" {
             guard syncSettings else { return false }
             if parts.count == 2 && ["workspace.json", "workspace-mobile.json", "workspaces.json"].contains(parts[1]) { return false }
@@ -90,7 +90,7 @@ public struct Revision: Sendable, Codable, Identifiable, Equatable {
               payload.parents.allSatisfy(Codec.validID), Set(payload.parents).count == payload.parents.count,
               payload.parents == payload.parents.sorted(),
               payload.blob.map(Codec.validID) ?? true,
-              payload.timestamp.isFinite else { throw WeaveError.invalidObject(id) }
+              payload.timestamp.isFinite else { throw VaultSyncError.invalidObject(id) }
     }
 }
 

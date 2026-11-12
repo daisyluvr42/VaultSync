@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-@main struct VaultWeaveApp: App {
+@main struct VaultSyncApp: App {
     @StateObject private var model = AppModel()
     var body: some Scene {
         WindowGroup("VaultSync", id: "main") {

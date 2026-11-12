@@ -34,7 +34,7 @@ public final class VaultEngine {
         guard let info = try Self.fileInfo(vault), info.st_mode & S_IFMT == S_IFDIR,
               vault.path != "/", vault.path != transport.path,
               !transport.path.hasPrefix(vault.path + "/"), !vault.path.hasPrefix(transport.path + "/") else {
-            throw WeaveError.invalidConfiguration("文库必须存在，且不能与版本传输目录重叠。")
+            throw VaultSyncError.invalidConfiguration("文库必须存在，且不能与版本传输目录重叠。")
         }
         self.vault = vault
         rootDevice = info.st_dev
@@ -59,28 +59,28 @@ public final class VaultEngine {
     private func checkRoot() throws {
         guard let info = try Self.fileInfo(vault), info.st_dev == rootDevice, info.st_ino == rootInode,
               info.st_mode & S_IFMT == S_IFDIR else {
-            throw WeaveError.invalidConfiguration("文库暂时不可用或已被替换，已暂停扫描，避免误判为批量删除。")
+            throw VaultSyncError.invalidConfiguration("文库暂时不可用或已被替换，已暂停扫描，避免误判为批量删除。")
         }
     }
     private func save() throws { try Codec.encode(state).write(to: stateURL, options: .atomic) }
     private func data(at path: String) throws -> Data? {
         let url = try Codec.safeURL(root: vault, path: path)
         guard let info = try Self.fileInfo(url) else { return nil }
-        guard info.st_mode & S_IFMT == S_IFREG else { throw WeaveError.invalidPath(path) }
+        guard info.st_mode & S_IFMT == S_IFREG else { throw VaultSyncError.invalidPath(path) }
         return try Data(contentsOf: url)
     }
     private func localFiles(in directory: URL, control: ScanControl?) throws -> Set<String> {
         let root = vault
         var failure: Error?
         guard let walker = fm.enumerator(at: directory, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .isDirectoryKey],
-                                        errorHandler: { _, error in failure = error; return false }) else { throw WeaveError.invalidPath(root.path) }
+                                        errorHandler: { _, error in failure = error; return false }) else { throw VaultSyncError.invalidPath(root.path) }
         var paths = Set<String>()
         for case let url as URL in walker {
             try control?.check()
             let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .isDirectoryKey])
             if values.isSymbolicLink == true { if values.isDirectory == true { walker.skipDescendants() }; continue }
             let normalized = url.standardizedFileURL.resolvingSymlinksInPath().path
-            guard normalized.hasPrefix(root.path + "/") else { throw WeaveError.invalidPath(url.path) }
+            guard normalized.hasPrefix(root.path + "/") else { throw VaultSyncError.invalidPath(url.path) }
             let path = String(normalized.dropFirst(root.path.count + 1))
             // skipDescendants on a regular file skips the remainder of its directory on macOS.
             // That turns existing, unvisited siblings into false deletions during capture.
@@ -93,7 +93,7 @@ public final class VaultEngine {
     private func stamp(_ path: String) throws -> Stamp? {
         let url = try Codec.safeURL(root: vault, path: path)
         guard let info = try Self.fileInfo(url) else { return nil }
-        guard info.st_mode & S_IFMT == S_IFREG else { throw WeaveError.invalidPath(path) }
+        guard info.st_mode & S_IFMT == S_IFREG else { throw VaultSyncError.invalidPath(path) }
         return Stamp(device: info.st_dev, inode: info.st_ino, size: info.st_size,
                      modified: info.st_mtimespec, changed: info.st_ctimespec)
     }
@@ -157,10 +157,10 @@ public final class VaultEngine {
             try control?.check()
             let before = diskPaths.contains(path) ? try stamp(path) : nil
             if changes != nil, state.files[path] != nil, let before, stamps[path] == before { continue }
-            if diskPaths.contains(path), before == nil { throw WeaveError.changedDuringSync(path) }
+            if diskPaths.contains(path), before == nil { throw VaultSyncError.changedDuringSync(path) }
             let bytes = diskPaths.contains(path) ? try data(at: path) : nil, digest = bytes.map(Codec.hash)
             try control?.check()
-            if diskPaths.contains(path) { guard try stamp(path) == before else { throw WeaveError.changedDuringSync(path) } }
+            if diskPaths.contains(path) { guard try stamp(path) == before else { throw VaultSyncError.changedDuringSync(path) } }
             if let track = state.files[path] {
                 if digest != track.blob {
                     try checkRoot()
@@ -210,13 +210,13 @@ public final class VaultEngine {
             if heads.count > 1 && Set(heads.map { $0.payload.blob }).count == 1 {
                 let bytes = try heads[0].payload.blob.map(store.blob)
                 try control?.check()
-                let joined = try store.create(path: path, parents: heads.map(\.id), data: bytes, device: "VaultWeave · identical content",
+                let joined = try store.create(path: path, parents: heads.map(\.id), data: bytes, device: "VaultSync · identical content",
                                               timestamp: heads.map { $0.payload.timestamp }.max())
                 heads = [joined]
             }
             if heads.count == 1 {
                 if state.files[path]?.heads == [heads[0].id] { continue }
-                do { try apply(heads[0], control: control) } catch WeaveError.changedDuringSync {
+                do { try apply(heads[0], control: control) } catch VaultSyncError.changedDuringSync {
                     report.notices.append("\(path) 正在编辑，下次扫描重试。")
                 }
             } else if heads.count > 1 {
@@ -235,14 +235,14 @@ public final class VaultEngine {
         let current = try data(at: path)
         try control?.check()
         let expected = state.files[path]?.blob
-        guard current.map(Codec.hash) == expected else { throw WeaveError.changedDuringSync(path) }
+        guard current.map(Codec.hash) == expected else { throw VaultSyncError.changedDuringSync(path) }
         if current.map(Codec.hash) != revision.payload.blob {
             if let blob = revision.payload.blob {
                 let bytes = try store.blob(blob)
                 try control?.check()
                 try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
                 // Recheck after fetching the blob; normal editor writes during preparation defer the update.
-                guard try data(at: path).map(Codec.hash) == expected else { throw WeaveError.changedDuringSync(path) }
+                guard try data(at: path).map(Codec.hash) == expected else { throw VaultSyncError.changedDuringSync(path) }
                 try bytes.write(to: url, options: .atomic)
             } else if current != nil { try fm.removeItem(at: url) }
         }
@@ -253,7 +253,7 @@ public final class VaultEngine {
         try capture()
         let loaded = try store.load()
         let heads = ObjectStore.heads(path: path, revisions: loaded.revisions)
-        guard heads.map(\.id).sorted() == expectedHeads.sorted(), heads.count > 1 else { throw WeaveError.staleMerge }
+        guard heads.map(\.id).sorted() == expectedHeads.sorted(), heads.count > 1 else { throw VaultSyncError.staleMerge }
         let revision = try store.create(path: path, parents: heads.map(\.id), data: data, device: device)
         try apply(revision)
         return try scan(changes: ScanChanges())
@@ -266,7 +266,7 @@ public final class VaultEngine {
         try capture()
         let graph = try store.load().revisions
         let heads = ObjectStore.heads(path: revision.payload.path, revisions: graph)
-        guard heads.count == 1 else { throw WeaveError.staleMerge }
+        guard heads.count == 1 else { throw VaultSyncError.staleMerge }
         let restored = try store.create(path: revision.payload.path, parents: heads.map(\.id), data: content(revision), device: device)
         try apply(restored)
         return try scan(changes: ScanChanges())
