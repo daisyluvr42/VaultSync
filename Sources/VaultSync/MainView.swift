@@ -158,6 +158,12 @@ struct DevicesView: View {
                         Button(copied ? "已复制" : "复制配对信息") { model.copyPairing(); copied = !model.engineID.isEmpty }.disabled(model.engineID.isEmpty)
                         Spacer(); if !model.engineID.isEmpty { Button("停止同步") { model.stopTransport() } }
                     }
+                    Toggle("将此 Mac 设为 Base", isOn: Binding(
+                        get: { model.config.isBase == true },
+                        set: { model.setBase($0) }
+                    ))
+                    Text("新设备查找时优先显示 Base。配对仍需双方确认。")
+                        .font(.caption).foregroundStyle(.secondary)
                 }.padding(20).background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
                 PairingDiscoveryView()
                 HStack { Text("已配对设备").font(.headline); Spacer(); Button { pairing = true } label: { Label("手动配对", systemImage: "doc.on.clipboard") } }
@@ -205,13 +211,17 @@ struct PairDeviceView: View {
 
 struct PairingDiscoveryView: View {
     @EnvironmentObject var model: AppModel
+    @State private var showDirectDevices = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Label("添加设备", systemImage: "point.3.connected.trianglepath.dotted").font(.headline)
                 Spacer()
-                Button(model.discovering ? "正在查找…" : "查找设备") { Task { await model.discoverDevices() } }
-                    .buttonStyle(.borderedProminent).disabled(model.discovering || model.transportBusy)
+                Button(model.discovering ? "正在查找…" : "查找设备") {
+                    showDirectDevices = false
+                    Task { await model.discoverDevices() }
+                }.buttonStyle(.borderedProminent).disabled(model.discovering || model.transportBusy)
             }
             if !model.pairingMessage.isEmpty { Text(model.pairingMessage).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) }
             if !model.nearby.isEmpty && model.incoming.isEmpty && model.outboundName.isEmpty { Text("配对后共享所有文库历史。").font(.caption).foregroundStyle(.secondary) }
@@ -238,16 +248,48 @@ struct PairingDiscoveryView: View {
                     Text("核对六位数字。配对后共享所有文库历史。").font(.caption).foregroundStyle(.secondary)
                 }.padding(14).background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
             }
-            ForEach(model.nearby) { device in
-                HStack {
-                    Image(systemName: "laptopcomputer").foregroundStyle(.indigo)
-                    VStack(alignment: .leading) { Text(device.peer.name); Text(device.peer.host).font(.caption).foregroundStyle(.secondary) }
-                    Spacer()
-                    if model.connected[device.id] == true { Text("已连接").foregroundStyle(.green) }
-                    else { Button(model.config.peers.contains(where: { $0.id == device.id }) ? "重新请求配对" : "请求配对") { Task { await model.requestPairing(device) } }.disabled(!model.outboundName.isEmpty) }
+            if model.config.isBase == true {
+                ForEach(model.nearby, content: deviceRow)
+            } else {
+                let primary = model.nearby.filter { $0.isBase || isPaired($0) }
+                let direct = model.nearby.filter { !$0.isBase && !isPaired($0) }
+                ForEach(primary, content: deviceRow)
+                if !direct.isEmpty {
+                    if model.config.peers.isEmpty && primary.isEmpty {
+                        Text("未发现在线的 Base。").font(.caption).foregroundStyle(.secondary)
+                    }
+                    DisclosureGroup("其他设备（可选直连）", isExpanded: $showDirectDevices) {
+                        VStack(spacing: 10) { ForEach(direct, content: deviceRow) }
+                            .padding(.top, 8)
+                    }
                 }
             }
         }.padding(20).background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func isPaired(_ device: NearbyDevice) -> Bool {
+        model.config.peers.contains { $0.id == device.id }
+    }
+
+    private func deviceRow(_ device: NearbyDevice) -> some View {
+        HStack {
+            Image(systemName: "laptopcomputer").foregroundStyle(.indigo)
+            VStack(alignment: .leading) {
+                HStack {
+                    Text(device.peer.name)
+                    if device.isBase { Text("Base").font(.caption).foregroundStyle(.indigo) }
+                }
+                Text(device.peer.host).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if model.connected[device.id] == true {
+                Text("已连接").foregroundStyle(.green)
+            } else {
+                Button(isPaired(device) ? "重新请求配对" : "请求配对") {
+                    Task { await model.requestPairing(device) }
+                }.disabled(!model.outboundName.isEmpty)
+            }
+        }
     }
 }
 

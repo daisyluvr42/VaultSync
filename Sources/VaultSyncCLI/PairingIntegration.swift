@@ -40,8 +40,11 @@ extension VaultSyncCLI {
         print("Pairing listener port:",server.port)
         _ = try await PairingClient.exchange(host:b.tailHost,port:server.port,packet:PairingPacket(action:"hello"))
         let found = await PairingClient.discover([TailnetDevice(host:b.tailHost,name:peerB.name)],port:33403)
-        guard found.count == 1, found[0].peer.id == b.deviceID else { throw VaultSyncError.invalidConfiguration("设备发现验证失败。") }
-        print("PASS discovered real device identity over Tailscale")
+        guard found.count == 1, found[0].peer.id == b.deviceID, !found[0].isBase else { throw VaultSyncError.invalidConfiguration("设备发现验证失败。") }
+        server.updateOffer(offerB, isBase: true)
+        let bases = await PairingClient.discover([TailnetDevice(host:b.tailHost,name:peerB.name)],port:33403)
+        guard bases.count == 1, bases[0].peer.id == b.deviceID, bases[0].isBase else { throw VaultSyncError.invalidConfiguration("Base 发现验证失败。") }
+        print("PASS discovered real device identity and optional Base role over Tailscale")
         func exchange(_ packet: PairingPacket) async throws -> PairingReply {
             try await PairingClient.exchange(host:b.tailHost,port:33403,packet:packet)
         }

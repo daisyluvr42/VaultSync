@@ -11,7 +11,7 @@ ditto --norsrc "$task_release/VaultSync.app" "$task_stage/VaultSync.app"
 xattr -dr com.apple.FinderInfo "$task_stage/VaultSync.app" 2>/dev/null || true
 xattr -dr com.apple.ResourceFork "$task_stage/VaultSync.app" 2>/dev/null || true
 codesign --verify --deep --strict "$task_stage/VaultSync.app"
-task_archive="$task_release/VaultSync-0.2.5.zip"
+task_archive="$task_release/VaultSync-0.2.6.zip"
 ditto -c -k --norsrc --keepParent "$task_stage/VaultSync.app" "$task_archive"
 mkdir "$task_stage/verify"
 ditto -x -k "$task_archive" "$task_stage/verify"
@@ -21,6 +21,6 @@ for task_binary in Contents/MacOS/VaultSync Contents/Helpers/VaultSyncEngineHost
 done
 (
     cd "$task_release"
-    shasum -a 256 VaultSync-0.2.5.zip > VaultSync-0.2.5.sha256
+    shasum -a 256 VaultSync-0.2.6.zip > VaultSync-0.2.6.sha256
 )
 print "Verified archive: $task_archive"

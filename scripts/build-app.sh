@@ -52,8 +52,8 @@ cat > "$task_output/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDisplayName</key><string>VaultSync</string>
 <key>CFBundleIconFile</key><string>VaultSync</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.2.5</string>
-<key>CFBundleVersion</key><string>8</string>
+<key>CFBundleShortVersionString</key><string>0.2.6</string>
+<key>CFBundleVersion</key><string>9</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSLocalNetworkUsageDescription</key><string>VaultSync 通过 Tailscale 与你的其他 Mac 同步文库。</string>

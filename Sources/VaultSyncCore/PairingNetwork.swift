@@ -10,8 +10,11 @@ public struct TailnetDevice: Sendable, Identifiable, Equatable {
 public struct NearbyDevice: Sendable, Identifiable {
     public var peer: Peer
     public var pairingPort: UInt16
+    public var isBase: Bool
     public var id: String { peer.id }
-    public init(peer: Peer, pairingPort: UInt16 = 22081) { self.peer = peer; self.pairingPort = pairingPort }
+    public init(peer: Peer, pairingPort: UInt16 = 22081, isBase: Bool = false) {
+        self.peer = peer; self.pairingPort = pairingPort; self.isBase = isBase
+    }
 }
 public struct PairingRequest: Sendable, Codable, Identifiable {
     public var id: String
@@ -39,7 +42,10 @@ public struct PairingReply: Sendable, Codable {
     public var state: String
     public var offer: PairingOffer?
     public var message: String?
-    public init(state: String, offer: PairingOffer? = nil, message: String? = nil) { self.state = state; self.offer = offer; self.message = message }
+    public var isBase: Bool?
+    public init(state: String, offer: PairingOffer? = nil, message: String? = nil, isBase: Bool? = nil) {
+        self.state = state; self.offer = offer; self.message = message; self.isBase = isBase
+    }
 }
 
 /// A small, bounded request/response protocol over the encrypted tailnet. No Vault payloads or
@@ -50,13 +56,18 @@ public final class PairingServer: @unchecked Sendable {
     private var listener: DispatchSourceRead?
     private var connections: [UUID: Int32] = [:]
     private var offer: PairingOffer
+    private var isBase: Bool
     private struct Entry { var request: PairingRequest; var origin: String; var state: String = "pending" }
     private var entries: [String: Entry] = [:]
     private let testLoopback: Bool
     public var onRequests: (@Sendable ([PairingRequest]) -> Void)?
     public var onAcknowledged: (@Sendable (PairingOffer) -> Void)?
-    public init(offer: PairingOffer, allowLoopbackForTesting: Bool = false) { self.offer = offer; testLoopback = allowLoopbackForTesting }
-    public func updateOffer(_ value: PairingOffer) { queue.async { self.offer = value } }
+    public init(offer: PairingOffer, isBase: Bool = false, allowLoopbackForTesting: Bool = false) {
+        self.offer = offer; self.isBase = isBase; testLoopback = allowLoopbackForTesting
+    }
+    public func updateOffer(_ value: PairingOffer, isBase: Bool) {
+        queue.async { self.offer = value; self.isBase = isBase }
+    }
     public func start(host: String, port: UInt16 = 22081) async throws {
         guard (host.contains(".") && Peer.isTailIP(host)) || (testLoopback && host == "127.0.0.1") else { throw VaultSyncError.invalidConfiguration("配对服务需要 Tailscale IPv4 地址。") }
         let fd = try PairingSocket.socket()
@@ -104,7 +115,8 @@ public final class PairingServer: @unchecked Sendable {
         let now = Date().timeIntervalSince1970
         entries = entries.filter { now - $0.value.request.created < 600 }
         switch packet.action {
-        case "hello": return PairingReply(state: "hello", offer: PairingOffer(peer: offer.peer, vaults: []))
+        case "hello":
+            return PairingReply(state: "hello", offer: PairingOffer(peer: offer.peer, vaults: []), isBase: isBase ? true : nil)
         case "request":
             guard var request = packet.request, UUID(uuidString: request.id) != nil, request.token.count >= 64,
                   request.code.count == 6, request.code.allSatisfy(\.isNumber), entries.count < 64 else { throw VaultSyncError.invalidConfiguration("配对请求无效或待处理请求过多。") }
@@ -176,8 +188,9 @@ public enum PairingClient {
                 for device in batch {
                     group.addTask {
                         guard let reply = try? await exchange(host: device.host, port: port, packet: PairingPacket(action: "hello")),
+                              reply.state == "hello",
                               let offer = reply.offer, offer.peer.host == device.host, (try? offer.peer.validate()) != nil else { return nil }
-                        return NearbyDevice(peer: offer.peer, pairingPort: port)
+                        return NearbyDevice(peer: offer.peer, pairingPort: port, isBase: reply.isBase == true)
                     }
                 }
                 var values: [NearbyDevice] = []; for await value in group { if let value { values.append(value) } }; return values

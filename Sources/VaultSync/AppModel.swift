@@ -8,6 +8,7 @@ struct AppConfig: Codable {
     var deviceName = Host.current().localizedName ?? "我的 Mac"
     var vaults: [VaultMapping] = []
     var peers: [Peer] = []
+    var isBase: Bool?
     var offeredVaults: [VaultMapping] = []
     var transportEnabled = false
     var scanInterval: Double = 5 // Retain the legacy setting for rollback compatibility.
@@ -111,8 +112,12 @@ private final class EngineWorkspace: @unchecked Sendable {
         do {
             try Codec.encode(config).write(to: configFile, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configFile.path)
-            if let offer = ownOffer { pairingServer?.updateOffer(offer) }
+            if let offer = ownOffer { pairingServer?.updateOffer(offer, isBase: config.isBase == true) }
         } catch { self.error = error.localizedDescription; paused = true }
+    }
+    func setBase(_ enabled: Bool) {
+        config.isBase = enabled ? true : nil
+        save()
     }
     func addVault(url: URL, id: String?, syncSettings: Bool) {
         let normalized = url.standardizedFileURL.resolvingSymlinksInPath()
@@ -418,12 +423,17 @@ private final class EngineWorkspace: @unchecked Sendable {
     }
     private func startPairingServer() async {
         guard pairingServer == nil, let offer = ownOffer else { return }
-        let server = PairingServer(offer: offer)
+        let server = PairingServer(offer: offer, isBase: config.isBase == true)
         server.onRequests = { [weak self] requests in Task { @MainActor in self?.incoming = requests } }
         server.onAcknowledged = { [weak self] offer in Task { @MainActor in
             self?.rememberVaults(offer); self?.pairingMessage = "已配对 \(offer.peer.name)"
         } }
-        do { try await server.start(host: engineHost, port: pairingPort); pairingServer = server; pairingMessage = "" }
+        do {
+            try await server.start(host: engineHost, port: pairingPort)
+            pairingServer = server
+            if let offer = ownOffer { server.updateOffer(offer, isBase: config.isBase == true) }
+            pairingMessage = ""
+        }
         catch { server.stop(); pairingMessage = "设备发现服务未启动：\(error.localizedDescription)；仍可使用手动配对。" }
     }
     func discoverDevices() async {

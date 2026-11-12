@@ -65,12 +65,16 @@ try:
         wait(lambda: (node['root']/'ready.json').exists(), 'engine readiness', 20)
         node['identity'] = json.loads((node['root']/'ready.json').read_text())
         assert node['identity']['globalDiscovery'] is False and node['identity']['relays'] is False
-    for node in nodes:
-        peers = [dict(id=other['identity']['deviceID'], name=f"node-{other['index']}", host=other['identity']['host'], port=other['sync']) for other in nodes if other is not node]
-        (node['root']/'peers.json').write_text(json.dumps(peers))
-    wait(lambda: all(sum(c.get('connected',False) for c in api(node,'GET','system/connections').get('connections',{}).values()) == 3 for node in nodes), 'four node mesh', 60)
-    print('PASS four real engines connected via Tailscale', flush=True)
     a,b,c,d = nodes
+    links = [[b,c,d], [a,c], [a,b], [a]]
+    for node, neighbors in zip(nodes, links):
+        peers = [dict(id=other['identity']['deviceID'], name=f"node-{other['index']}", host=other['identity']['host'], port=other['sync']) for other in neighbors]
+        (node['root']/'peers.json').write_text(json.dumps(peers))
+    def connected_ids(node):
+        return {device_id for device_id, connection in api(node,'GET','system/connections')['connections'].items() if connection['connected']}
+    wait(lambda: all(connected_ids(node) == {neighbor['identity']['deviceID'] for neighbor in neighbors}
+                     for node, neighbors in zip(nodes, links)), 'three-node mesh plus Base-only device', 60)
+    print('PASS three real engines stay fully paired; fourth connects only to Base', flush=True)
     (a['vault']/'note.md').write_text('base\n')
     (a['vault']/'attachment.bin').write_bytes(bytes(range(256))*256)
     core(a)
@@ -80,6 +84,13 @@ try:
         assert (node['vault']/'note.md').read_text() == 'base\n'
         assert (node['vault']/'attachment.bin').read_bytes() == (a['vault']/'attachment.bin').read_bytes()
     print('PASS initial notes and binary attachment synchronized', flush=True)
+    (d['vault']/'leaf.md').write_text('from the new Mac\n')
+    core(d)
+    wait(lambda: core(b)['files'] == 3 and (b['vault']/'leaf.md').read_text() == 'from the new Mac\n', 'leaf to existing peer via Base')
+    (b['vault']/'leaf.md').write_text('from an existing Mac\n')
+    core(b)
+    wait(lambda: core(d)['files'] == 3 and (d['vault']/'leaf.md').read_text() == 'from an existing Mac\n', 'existing peer to leaf via Base')
+    print('PASS edits flow both ways through Base without a direct link', flush=True)
     for node in nodes: api(node,'POST','system/pause')
     for index,node in enumerate(nodes):
         (node['vault']/'note.md').write_text(chr(65+index)+'\n'); core(node)
@@ -110,7 +121,7 @@ try:
     wait(lambda: d['identity']['deviceID'] not in [peer['deviceID'] for peer in api(a,'GET','config')['devices']], 'device revocation')
     wait(lambda: not api(a,'GET','system/connections').get('connections',{}).get(d['identity']['deviceID'],{}).get('connected',False), 'revoked connection closes')
     print('PASS device removal revokes engine sharing', flush=True)
-    (run/'RESULT.txt').write_text('PASS: 4 real Syncthing processes, Tailnet mesh, notes, attachment, offline branches, explicit merges, late node, second vault\n')
+    (run/'RESULT.txt').write_text('PASS: 4 real Syncthing processes, Tailnet mesh with Base-only fourth device, two-way forwarding, notes, attachment, offline branches, explicit merges, late node, second vault\n')
     print('Integration artifacts:',run)
 finally:
     for node in nodes: (node['root']/'stop').touch()
