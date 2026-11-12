@@ -25,6 +25,15 @@ if [[ "$task_configuration" == "release" ]]; then
     task_cross_bin="$(swift build -c release --triple "${task_other}-apple-macosx13.0" --scratch-path "$task_cross_build" --show-bin-path)"
     lipo -create "$task_bin/VaultWeave" "$task_cross_bin/VaultWeave" -output "$task_output/Contents/MacOS/VaultSync"
     lipo -create "$task_bin/VaultWeaveEngineHost" "$task_cross_bin/VaultWeaveEngineHost" -output "$task_output/Contents/Helpers/VaultWeaveEngineHost"
+    # Swift's debug map contains absolute source and object paths. Strip it before signing.
+    for task_binary in "$task_output/Contents/MacOS/VaultSync" "$task_output/Contents/Helpers/VaultWeaveEngineHost"; do
+        /usr/bin/strip -S "$task_binary"
+        if LC_ALL=C /usr/bin/strings -a "$task_binary" |
+            /usr/bin/grep -F -e "$task_root/" -e "$task_build/" -e "$task_cross_build/" >/dev/null; then
+            print -u2 "Build paths remain in ${task_binary:t}"
+            exit 1
+        fi
+    done
 fi
 cp Resources/syncthing "$task_output/Contents/Helpers/syncthing"
 cp Resources/SYNCTHING-LICENSE.txt Resources/SYNCTHING-VERSION.txt "$task_output/Contents/Resources/"
